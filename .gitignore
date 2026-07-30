@@ -1,0 +1,17 @@
+# macOS
+.DS_Store
+**/.DS_Store
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# Build output
+build/
+.gradle/
+out/
+bin/
+
+# Logs
+*.log
