@@ -737,3 +737,149 @@ service:
 - **No PII in attributes.** Use ids (`customerId`), never names/emails/card numbers, in span attributes or event headers.
 - **Idempotency key = trace-friendly.** Carry `eventId` as both `messaging.message.id` and your dedup key so a replayed message is identifiable in traces.
 - **Use `conversation_id` for sagas.** Stamp a business correlation id across every message in a multi-step flow so you can query the whole saga even across separate traces.
+
+
+---
+
+# Maturity Scorecard — Event-Driven DDD & Microservices
+
+This scorecard rates how well the tracing design in this document supports observability for an **event-driven, DDD-based microservices** system. Each capability is scored **0–5** against what the doc currently specifies. The *Status* is `Covered` / `Partial` / `Missing`, and *What to implement* is the concrete gap to close.
+
+Legend: 5 = fully specified & production-ready · 3 = defined but not wired into schema/code · 1 = only mentioned · 0 = absent.
+
+## A. Context & correlation (foundation) — 14 / 20
+
+| Capability | Score | Status | What to implement |
+|---|---|---|---|
+| W3C context propagation (HTTP + broker) | 5/5 | Covered | — |
+| Command vs. event span modeling (parent-child vs. link) | 5/5 | Covered | — |
+| Business correlation + causation (`conversation_id`, `causation_id`) | 3/5 | Partial | Defined in the key table but **not in the envelope (block 1) or the code**. Add both to the event envelope + headers, stamp on every span, and re-stamp on the consumer. |
+| Three-pillar correlation (trace ↔ log ↔ metric) | 1/5 | Missing | Inject `trace_id`/`span_id` into log MDC; enable **exemplars** on messaging metrics so a slow-topic metric links to a trace. |
+
+## B. DDD alignment — 7 / 20
+
+| Capability | Score | Status | What to implement |
+|---|---|---|---|
+| Bounded context / aggregate tagging | 1/5 | Missing | Add `ddd.bounded_context`, `ddd.aggregate.type`, `ddd.aggregate.id` to spans so traces map to the domain model and can be filtered per context. |
+| Domain event vs. integration event distinction | 2/5 | Partial | Add `message.category` (`domain` vs `integration`). Trace **integration events** crossing context boundaries; in-process domain events need not cross the wire. |
+| Saga / process-manager tracing (long-running) | 2/5 | Partial | Model the saga as `saga.name` / `saga.step` spans correlated by `conversation_id`, with explicit **compensation** spans on rollback. |
+| Event versioning / schema evolution | 2/5 | Partial | Put `event.version` + `schema.id` on spans; trace schema-registry validation; emit a span event on version mismatch / upcast. |
+
+## C. Reliability & consistency — 17 / 30
+
+| Capability | Score | Status | What to implement |
+|---|---|---|---|
+| Message loss / silent-failure detection | 5/5 | Covered | — |
+| Dead-letter queue tracing + replay linkage | 5/5 | Covered | — |
+| Idempotency & duplicate detection | 3/5 | Partial | Emit `messaging.duplicate_detected` span event with `idempotency.outcome` = `processed`/`skipped` when a repeat `message.id` is dropped. |
+| **Transactional outbox / dual-write consistency** | 0/5 | Missing | Store `traceparent` in the outbox row; **link** the DB-commit span to the later relay/publish span so the persist→publish gap is visible and dual-write consistency is provable. Highest-value gap for EDA correctness. |
+| Ordering / partition / optimistic concurrency | 1/5 | Missing | Add `messaging.destination.partition.id`, Kafka offset, and `aggregate.version`; trace stale-version / out-of-order rejects. |
+| Retry / backoff / redelivery | 3/5 | Partial | One span (or span event) per attempt: `retry.count`, `retry.delay_ms`, `retry.reason`, terminating in DLQ. |
+
+## D. Operations & quality — 23 / 30
+
+| Capability | Score | Status | What to implement |
+|---|---|---|---|
+| Sampling strategy (consistent head + tail) | 5/5 | Covered | — |
+| Clean-architecture separation (tracing in adapters) | 5/5 | Covered | — |
+| Async thread-context propagation | 4/5 | Covered | Add note for Reactor / virtual-thread edge cases. |
+| Shared semantic-convention catalog | 4/5 | Covered | Make it machine-checkable: central constants module + CI lint against naming drift. |
+| PII / security in spans | 4/5 | Covered | Add automated attribute scrubbing at the collector as a backstop. |
+| Instrumentation testing & verification | 1/5 | Missing | Integration test with an in-memory span exporter: assert producer→consumer share `trace_id`, correct span kinds, and required attributes present. |
+
+## Overall score
+
+| Category | Score | Weight |
+|---|---|---|
+| A. Context & correlation | 14 / 20 | foundation |
+| B. DDD alignment | 7 / 20 | domain fit |
+| C. Reliability & consistency | 17 / 30 | correctness |
+| D. Operations & quality | 23 / 30 | run & sustain |
+| **Total** | **61 / 100** | — |
+
+**Maturity level: 3 of 5 — "Defined."** The tracing *mechanics* are production-grade (propagation, command/event modeling, loss & DLQ tracing, sampling, clean architecture). The gaps are in **DDD-domain fit** (weakest category) and **consistency patterns** — the design does not yet make the domain model or the outbox/dual-write path observable.
+
+## Priority roadmap (what to implement)
+
+**P0 — correctness & domain fit (close first):**
+1. **Transactional outbox tracing** (C, 0/5) — without it the persist→publish gap is a blind spot and lost/duplicate publishes are invisible.
+2. **Wire `conversation_id` + `causation_id`** into the envelope, headers, and every span (A, 3/5) — prerequisite for saga and cause→effect search.
+3. **Bounded-context / aggregate tagging** (B, 1/5) — makes traces navigable by the domain model, not just by service.
+4. **Three-pillar correlation** (A, 1/5) — trace_id in logs + metric exemplars, so an alert leads to a trace leads to the log line.
+
+**P1 — domain depth & reliability:**
+5. Saga / process-manager spans with compensation (B).
+6. Idempotency / duplicate-detection span events (C).
+7. Ordering / partition / `aggregate.version` attributes (C).
+8. Domain-vs-integration event category (B).
+
+**P2 — sustainability:**
+9. Instrumentation integration tests (D).
+10. Event-version / schema-evolution tracing (B).
+11. Explicit retry/backoff spans (C).
+
+Closing P0 alone raises the score to roughly **78 / 100 (Level 4 — "Correlated")**: the point at which you can take any business id and reconstruct the full, eventually-consistent transaction — including the outbox and DLQ hops — and pinpoint the failing span.
+
+
+---
+
+# Design Rationale (revisit before implementing the scorecard P0 items)
+
+These two questions were resolved before implementing the scorecard gaps. Captured here so the reasoning isn't lost.
+
+## Q1. Why is domain-model observability required, and what kind?
+
+**Why.** Infrastructure spans (HTTP, DB, `publish`/`process`) tell you *what the machine did* — a message was sent, a query ran. They do **not** tell you *what the business meant*. In an event-driven DDD system the failures that hurt most are **business-level inconsistencies** that infra spans are blind to:
+
+- An aggregate left in an invalid state after a partial saga.
+- A command silently *rejected by an invariant* (a legitimate business "no", not an exception) that stalls a flow.
+- A saga stuck between steps, or a compensation that never fired.
+- An event consumed by 3 of 4 bounded contexts, leaving one context's read model stale.
+
+None of these throw. A trace can show all-green spans while the business outcome is wrong. Domain-model observability makes the telemetry speak the **ubiquitous language**, so you can ask "which invariant rejected this order?" instead of reverse-engineering it from a `200 OK`.
+
+**What kind** — four things, in priority order:
+
+| What | Signal type | Example |
+|---|---|---|
+| Aggregate identity + version | span attributes | `ddd.aggregate.type=Order`, `ddd.aggregate.id=ord_1001`, `aggregate.version=7` (also the optimistic-concurrency key) |
+| Bounded context boundary | span attribute | `ddd.bounded_context=payments` — filter/aggregate by context, not just by service |
+| Command/event outcome & invariant results | **span events** | `command.rejected` with `rule="CreditLimitExceeded"`; `domain.event.emitted` with `event.name=OrderCreated` |
+| Domain KPIs (business facts, not infra) | **metrics** | `orders.placed`, `payments.declined`, `saga.orders.completed`, derived from domain events |
+
+**Clean-architecture constraint that shapes all of this:** the domain layer stays pure — no OTel imports in entities/aggregates. So we do **not** instrument the domain model directly. We observe **domain events at the application/adapter boundary**: the aggregate raises `OrderCreated`, and the application service (or an event dispatcher) translates that into a span attribute, span event, or metric. The domain stays ignorant of observability; the adapters do the tracing — the same golden rule already used for messaging, extended to domain events.
+
+## Q2. How do trace-log-metrics work *across* services vs. the service-specific plan?
+
+Key mental model: **cross-service and service-specific are not two systems — they are the same signals viewed at two scopes.** The service-specific plan *produces* the signals; this cross-service plan *makes them joinable* across boundaries. This doc does **not** re-instrument anything — it defines the **join layer**.
+
+Division of responsibility per pillar:
+
+- **Traces** — inherently cross-service already; one trace spans services *because* of context propagation.
+  - Service-specific plan: which spans a service emits internally.
+  - Cross-service plan (here): **propagation** (`traceparent` over HTTP/broker), **linking** (`conversation_id` for sagas that split into multiple traces), and **assembly** at the backend.
+- **Logs** — physically local to each service; correlation is the only cross-service part.
+  - Service-specific plan: what to log, levels, structured format.
+  - Cross-service plan (here): mandates the **shared correlation keys** in every log line's MDC (`trace_id`, `span_id`, `conversation_id`, business ids). Without the mandate, cross-service log search is impossible; with it, one query joins logs from all services.
+- **Metrics** — where the two scopes differ most.
+  - Service-specific metrics are **per-service aggregates**: latency, throughput, error rate *of that service*.
+  - Cross-service metrics describe the **edges and flow between services** — end-to-end transaction latency, publish→process lag, consumer lag, saga completion rate, DLQ rate — typically **derived from spans** at the collector, not emitted by a single service.
+
+**The glue that connects all three across services** is exactly the two scorecard gaps:
+
+1. A **shared correlation-key set + consistent attribute naming** (semantic conventions) so the same identifiers appear in all three pillars in every service.
+2. The **pillar bridges**: `trace_id` links logs ↔ traces; **exemplars** link metrics ↔ traces.
+
+Cross-service investigation flow: a cross-service metric anomaly (e.g. saga completion rate drops) → click its **exemplar** into a trace that spans services → filter every service's **logs** by that trace's `trace_id`/`span_id`. This pivot only works if the service-specific plan stamps the shared keys — which this plan defines.
+
+### Scope boundary between the two docs
+
+| Concern | Service-specific doc | This (cross-service) doc |
+|---|---|---|
+| Which spans/logs/metrics to emit inside a service | owns | references |
+| Propagation format + linking | consumes | owns |
+| Shared correlation-key catalog + semantic conventions | implements | defines |
+| Span-derived edge/flow metrics + exemplars | — | owns |
+| Domain-model observability | emits domain metrics/logs locally | defines the shared domain keys (`aggregate.id`, `conversation_id`, `bounded_context`) so they join |
+
+**Implication for scorecard P0:** the **three-pillar correlation** and **domain-model** gaps belong in this doc **only as the shared contract** — the key catalog and the bridge mechanisms (MDC injection, exemplars) — not as re-specified per-service instrumentation. This keeps the two plans complementary instead of overlapping.
