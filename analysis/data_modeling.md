@@ -148,14 +148,14 @@ graph LR
 
 ## 4.4 Operation Lifecycle Walkthrough
 
-The diagram walks one operation from the API call, through Service A's in-process spans, across the Kafka boundary, into Service B. Watch which IDs stay constant and which change at the async hop. The overall flow is left-to-right; each service's internal steps stack vertically.
+The diagram walks one operation from the API call, through Service A's in-process spans, across the Kafka boundary, into Service B. Watch which IDs stay constant and which change at the async hop. The overall flow reads top-to-bottom: Service A sits on the first row, then the flow wraps onto a new line after Service A's boundary into the Kafka broker and Service B. Each service's internal steps stack vertically.
 
 ```mermaid
-graph LR
+graph TB
     C["Client / API Gateway"]
 
     subgraph SA[SERVICE A - order-service : Trace T_100 throughout]
-        direction TB
+        direction LR
         A1["<div style='text-align:left'>HTTP Controller<br/>Trace=T_100 (start), Span=S_ROOT<br/>Correlation=C_999 (set), Causation=C_999 (root)</div>"]
         A2["<div style='text-align:left'>CommandHandler<br/>Trace=T_100 (kept), Span=S_CMD (parent=S_ROOT)<br/>Correlation=C_999, Causation=C_999</div>"]
         A3["<div style='text-align:left'>EventStore.append<br/>Trace=T_100 (kept), Span=S_DB (parent=S_CMD)<br/>appends Event E_001</div>"]
@@ -416,6 +416,32 @@ These schemas model each observability record as it is stored and queried. Field
 | `tenantId`<br>OTel custom: `enduser.tenant.id` | java.lang.String | Multi-tenant slicing (use cautiously — high cardinality). |
 | `exemplarTraceId`<br>OTel: exemplar `trace_id` | java.lang.String | Sample Trace ID linking a metric spike to a real trace. |
 | `exemplarSpanId`<br>OTel: exemplar `span_id` | java.lang.String | Sample Span ID for the exemplar data point. |
+
+### 8.1.1 Metric Catalog: Name, Type & Unit Reference
+
+The schema above defines the *fields*; this catalog fixes the concrete **`metricName` → `metricType` → `unit`** contract for each measurement we emit. It is the source of truth to avoid drift (two teams naming latency differently or mixing seconds with milliseconds). Best practices applied:
+
+- **Naming:** the app-side name is `camelCase` with a unit suffix (`commandLatencySeconds`); the exported OTel name is dotted, lowercase, and **unit-free** (`command.latency`) because the unit travels in the `unit` field, not the name.
+- **Instrument type:** pick per semantics — `Counter` (monotonic totals), `UpDownCounter` (values that rise and fall), `Gauge` (instantaneous snapshots), `Histogram` (distributions you want percentiles on).
+- **Unit:** always a **UCUM** code — `s` (seconds), `By` (bytes), `1` (dimensionless ratio/utilization), and annotation units like `{request}` or `{message}` for countable things that have no physical unit.
+
+| `metricName` (app / OTel) | `metricType` | `unit` (UCUM) | `metricValue` meaning |
+|---|---|---|---|
+| `commandLatencySeconds`<br>`command.latency` | Histogram | `s` | Wall-clock duration of a CQRS command handler; drives p50/p95/p99. |
+| `queryLatencySeconds`<br>`query.latency` | Histogram | `s` | Duration of a read-side query handler. |
+| `requestCount`<br>`http.server.request.count` | Counter | `{request}` | Monotonic total of inbound requests handled. |
+| `errorCount`<br>`error.count` | Counter | `{error}` | Monotonic total of failures, split by `errorType`/`executionStatus`. |
+| `businessInvariantViolations`<br>`ddd.invariant.violations` | Counter | `{violation}` | Domain rule breaks, tracked apart from system errors. |
+| `eventsAppended`<br>`eventstore.events.appended` | Counter | `{event}` | Domain events written to the event store. |
+| `messagesPublished`<br>`messaging.published` | Counter | `{message}` | Broker messages produced to a topic/exchange. |
+| `messageProcessingSeconds`<br>`messaging.process.duration` | Histogram | `s` | Time to consume and process one broker message. |
+| `consumerLagCount`<br>`messaging.consumer.lag` | Gauge | `{message}` | Current backlog of unconsumed messages for a consumer group. |
+| `dbConnectionsActive`<br>`db.client.connections.usage` | UpDownCounter | `{connection}` | Connections currently checked out of the pool (rises and falls). |
+| `dbConnectionPoolUtilization`<br>`db.client.connections.utilization` | Gauge | `1` | Pool saturation as a 0–1 ratio. |
+| `cacheHitRatio`<br>`cache.hit.ratio` | Gauge | `1` | Query-side cache efficiency as a 0–1 ratio. |
+| `jvmMemoryUsedBytes`<br>`jvm.memory.used` | UpDownCounter | `By` | Heap/non-heap memory in use per instance. |
+| `cpuUtilization`<br>`system.cpu.utilization` | Gauge | `1` | Fraction of CPU in use (0–1) per service instance. |
+| `gcPauseSeconds`<br>`jvm.gc.duration` | Histogram | `s` | Garbage-collection pause durations. |
 
 ## 8.2 Logging Attributes Schema
 
