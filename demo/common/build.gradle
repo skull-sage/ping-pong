@@ -1,0 +1,7 @@
+// Shared contract module: the event envelope + the machine-checkable semantic-convention
+// catalog (OQ-4). Deliberately free of OpenTelemetry and Spring types so both the domain
+// layers and the infrastructure adapters can depend on it without leaking framework code.
+dependencies {
+    implementation 'com.fasterxml.jackson.core:jackson-databind'
+    implementation 'com.fasterxml.jackson.datatype:jackson-datatype-jsr310'
+}

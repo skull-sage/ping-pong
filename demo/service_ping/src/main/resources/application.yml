@@ -1,0 +1,43 @@
+spring:
+  application:
+    name: service-ping            # bound as service.name on every span/metric/log
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP:localhost:9092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: all                   # durability: surface unconfirmed publishes (§8.1)
+    consumer:
+      group-id: service-ping
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+
+server:
+  port: 8080
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  tracing:
+    sampling:
+      probability: 1.0            # 100% in the demo; use tail sampling at the collector in prod (OQ-1)
+  opentelemetry:
+    resource-attributes:
+      service.namespace: pingpong
+  otlp:
+    tracing:
+      endpoint: ${OTLP_ENDPOINT:http://localhost:4318}/v1/traces
+    metrics:
+      export:
+        url: ${OTLP_ENDPOINT:http://localhost:4318}/v1/metrics
+        step: 5s
+    logging:
+      endpoint: ${OTLP_ENDPOINT:http://localhost:4318}/v1/logs
+
+logging:
+  pattern:
+    # three-pillar correlation (CR-4): infra ids + business ids in every console line
+    level: "%5p [traceId=%X{traceId:-}, spanId=%X{spanId:-}] [corr=%X{correlationId:-}, cause=%X{causationId:-}]"

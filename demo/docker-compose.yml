@@ -1,0 +1,87 @@
+# One-command local simulation stack:
+#   - kafka       : single-node KRaft broker (cross-service messaging)
+#   - otel-lgtm   : Grafana + Tempo + Loki + Prometheus + OTel Collector in one image
+#   - service_*   : the three Spring Boot 4 services (traces/metrics/logs -> otel-lgtm via OTLP)
+#
+# Start with:  docker compose up --build
+
+services:
+
+  kafka:
+    image: apache/kafka:3.9.0
+    container_name: pingpong-kafka
+    ports:
+      - "29092:29092"   # host access (e.g. running a service locally): use localhost:29092
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093,EXTERNAL://:29092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,EXTERNAL://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+
+  otel-lgtm:
+    image: grafana/otel-lgtm:latest
+    container_name: pingpong-lgtm
+    ports:
+      - "3000:3000"   # Grafana UI
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP
+    environment:
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+
+  service_ping:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        MODULE: service_ping
+    container_name: pingpong-service-ping
+    ports:
+      - "8080:8080"
+    environment:
+      KAFKA_BOOTSTRAP: kafka:9092
+      OTLP_ENDPOINT: http://otel-lgtm:4318
+    depends_on:
+      - kafka
+      - otel-lgtm
+
+  service_pongA:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        MODULE: service_pongA
+    container_name: pingpong-service-ponga
+    ports:
+      - "8081:8081"
+    environment:
+      KAFKA_BOOTSTRAP: kafka:9092
+      OTLP_ENDPOINT: http://otel-lgtm:4318
+    depends_on:
+      - kafka
+      - otel-lgtm
+
+  service_pongB:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        MODULE: service_pongB
+    container_name: pingpong-service-pongb
+    ports:
+      - "8082:8082"
+    environment:
+      KAFKA_BOOTSTRAP: kafka:9092
+      OTLP_ENDPOINT: http://otel-lgtm:4318
+    depends_on:
+      - kafka
+      - otel-lgtm

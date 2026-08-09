@@ -1,0 +1,22 @@
+plugins {
+    id 'org.springframework.boot'
+}
+
+dependencies {
+    implementation project(':common')
+
+    // Web entry point (produces the inbound SERVER span automatically)
+    implementation 'org.springframework.boot:spring-boot-starter-web'
+    implementation 'org.springframework.boot:spring-boot-starter-actuator'
+
+    // Messaging
+    implementation 'org.springframework.kafka:spring-kafka'
+
+    // Three pillars -> Grafana LGTM (OTLP): traces, metrics, logs
+    implementation 'io.micrometer:micrometer-tracing-bridge-otel'
+    implementation 'io.opentelemetry:opentelemetry-exporter-otlp'
+    implementation 'io.micrometer:micrometer-registry-otlp'
+
+    // JSON
+    implementation 'com.fasterxml.jackson.datatype:jackson-datatype-jsr310'
+}

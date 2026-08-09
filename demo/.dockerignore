@@ -1,0 +1,6 @@
+**/build/
+**/.gradle/
+**/bin/
+.gradle/
+trigger_ping/
+*.md
