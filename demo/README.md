@@ -44,9 +44,43 @@ demo/
 ## Prerequisites
 
 - Docker + Docker Compose (Docker Desktop is fine)
-- A JDK (21+) to run the trigger. No local Gradle needed — services build inside the Gradle image.
+- A JDK 21+ (used by the Gradle wrapper to run the services locally, and to run the trigger)
 
-## 1. Start the stack
+## Quick start (one command, cross-platform)
+
+Spins up everything: starts Kafka + Grafana LGTM containers, launches the three services locally via
+the Gradle wrapper (messages flow over Kafka), opens the Grafana dashboard, then runs a continuous
+trigger to generate live traffic. Ctrl+C stops the trigger; the stack keeps running.
+
+```bash
+# macOS / Linux
+cd demo
+./run-simulation.sh                         # defaults: 12 concurrent users, 200ms think time
+./run-simulation.sh --concurrency 25 --think-ms 100
+./run-simulation.sh --duration-sec 120      # auto-stop the trigger after 120s
+```
+
+```powershell
+# Windows (PowerShell)
+cd demo
+./run-simulation.ps1
+./run-simulation.ps1 -Concurrency 25 -ThinkMs 100
+./run-simulation.ps1 -DurationSec 120
+```
+
+Shut everything down (services + containers):
+
+```bash
+./stop-simulation.sh      # macOS / Linux
+./stop-simulation.ps1     # Windows
+```
+
+Services: `service_ping` :8080, `service_pong` :8081, `service_bang` :8082.
+Grafana: http://localhost:3000 (anonymous admin, opens automatically).
+
+> Prefer full containerization instead of local Gradle? Use the manual Docker path below.
+
+## 1. Start the stack (manual / all-in-Docker)
 
 From this `demo/` folder:
 

@@ -83,6 +83,7 @@ foreach ($s in $services) {
 
 Write-Host '== 4/4  Starting CONTINUOUS trigger (Ctrl+C to stop) ==' -ForegroundColor Cyan
 Write-Host "   Grafana: http://localhost:3000  (Explore -> Tempo / Loki / Prometheus)" -ForegroundColor Yellow
+Start-Process 'http://localhost:3000'   # open the Grafana dashboard in the default browser
 Write-Host ''
 $triggerArgs = @('Trigger.java', '--concurrency', "$Concurrency", '--think-ms', "$ThinkMs", '--report-sec', "$ReportSec")
 if ($DurationSec -gt 0) { $triggerArgs += @('--duration-sec', "$DurationSec") }
