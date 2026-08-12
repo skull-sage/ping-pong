@@ -14,5 +14,5 @@ rootProject.name = 'ping-pong-tracing-demo'
 
 include 'common'
 include 'service_ping'
-include 'service_pongA'
-include 'service_pongB'
+include 'service_pong'
+include 'service_bang'

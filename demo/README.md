@@ -6,23 +6,23 @@ stack (Loki, Grafana, Tempo, Prometheus) receiving traces, logs, and metrics ove
 
 ## What it does
 
+A linear **event chain**: `ping → pong → bang`.
+
 ```
  trigger_ping ──HTTP POST /api/ping──▶ service_ping ──publish ping.events──▶ Kafka
-                                                                              │  (fan-out, one event)
-                                              ┌───────────────────────────────┴───────────────────────────────┐
-                                              ▼                                                                 ▼
-                                        service_pongA                                                     service_pongB
-                                  (new root trace, LINK back)                                       (new root trace, LINK back)
-                                              │ publish pong.events                                              │ publish pong.events
-                                              └───────────────────────────────┬───────────────────────────────┘
-                                                                              ▼  (fan-in)
-                                                                        service_ping
-                                                              (new root trace, LINK back — closes the saga)
+                                                                                │
+                                                                                ▼
+                                                                          service_pong        (consumes ping.events;
+                                                                    new root trace, LINK back)  publishes pong.events)
+                                                                                │ publish pong.events
+                                                                                ▼
+                                                                          service_bang        (consumes pong.events;
+                                                                    new root trace, LINK back)  terminal — publishes nothing)
 ```
 
 - One **`correlationId`** (the saga id) is minted at the HTTP entry and stays constant across every
-  hop and every separate trace — it is the single value you search on to see the whole business flow.
-- **`causationId`** chains cause → effect: the ping event causes each pong; each pong causes the fan-in.
+  hop and every separate trace — it is the single value you search on to see the whole chain.
+- **`causationId`** chains cause → effect: the ping event causes the pong; the pong event causes the bang step.
 - Events use the **new-root-trace + link** model (CR-2), so async latency never distorts the producer's trace.
 
 ## Layout (clean architecture per service)
@@ -30,10 +30,10 @@ stack (Loki, Grafana, Tempo, Prometheus) receiving traces, logs, and metrics ove
 ```
 demo/
 ├── common/                 # shared contract: EventEnvelope, TracingAttributes catalog, ReadableId, Topics
-├── service_ping/           # HTTP entry + ping.events producer + pong.events consumer (fan-in)
-│   └── src/main/java/com/pingpong/ping/{domain,application,infrastructure}
-├── service_pongA/          # ping.events consumer (fan-out) + pong.events producer
-├── service_pongB/          # ping.events consumer (fan-out) + pong.events producer
+├── service_ping/           # HTTP entry + ping.events producer (chain start)
+│   └── src/main/java/com/pingpong/ping/{domain,application,infrastructure,presentation}
+├── service_pong/          # ping.events consumer + pong.events producer (chain middle)
+├── service_bang/          # pong.events consumer — terminal, publishes nothing (chain end)
 ├── trigger_ping/Trigger.java   # dependency-free concurrent HTTP load trigger
 ├── Dockerfile              # shared multi-stage build (MODULE build-arg)
 └── docker-compose.yml      # kafka + otel-lgtm + the 3 services
@@ -57,7 +57,7 @@ docker compose up --build
 First run builds the three service images (downloads Gradle deps once) and pulls Kafka + otel-lgtm.
 Wait until the three `service_*` containers log `Started ...Application`.
 
-Services: `service_ping` :8080, `service_pongA` :8081, `service_pongB` :8082.
+Services: `service_ping` :8080, `service_pong` :8081, `service_bang` :8082.
 Grafana: http://localhost:3000 (anonymous admin, no login).
 
 ## 2. Fire pings (concurrent)
@@ -86,7 +86,7 @@ curl -X POST http://localhost:8080/api/ping -H "Content-Type: application/json" 
 Open http://localhost:3000, then:
 
 **Traces (Tempo)** — Explore → data source **Tempo**:
-- **Search** tab: pick Service Name `service-ping` (or `service-pongA` / `service-pongB`), Run query,
+- **Search** tab: pick Service Name `service-ping` (or `service-pong` / `service-bang`), Run query,
   open a trace to see the waterfall. PRODUCER (publish) and CONSUMER (process) spans carry the
   `messaging.*`, `ddd.*`, `app.causation_id`, and `event.type` attributes.
 - **Follow a whole saga across traces** — use the TraceQL tab and query by the saga id:
@@ -97,7 +97,7 @@ Open http://localhost:3000, then:
   separate ping / pongA / pongB / fan-in traces, joined by **span links**.
 
 **Logs (Loki)** — Explore → data source **Loki**:
-- Query `{service_name="service-pongA"}` (or any service). Each line carries `traceId`, `spanId`,
+- Query `{service_name="service-pong"}` (or any service). Each line carries `traceId`, `spanId`,
   `correlationId`, and `causationId` (CR-4). Click a `traceId` to jump straight to its trace.
 
 **Metrics (Prometheus)** — Explore → data source **Prometheus**:

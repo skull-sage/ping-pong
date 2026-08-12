@@ -44,6 +44,7 @@ services:
       dockerfile: Dockerfile
       args:
         MODULE: service_ping
+    image: pingpong/service-ping:local
     container_name: pingpong-service-ping
     ports:
       - "8080:8080"
@@ -54,13 +55,14 @@ services:
       - kafka
       - otel-lgtm
 
-  service_pongA:
+  service_pong:
     build:
       context: .
       dockerfile: Dockerfile
       args:
-        MODULE: service_pongA
-    container_name: pingpong-service-ponga
+        MODULE: service_pong
+    image: pingpong/service-pong:local
+    container_name: pingpong-service-pong
     ports:
       - "8081:8081"
     environment:
@@ -70,13 +72,14 @@ services:
       - kafka
       - otel-lgtm
 
-  service_pongB:
+  service_bang:
     build:
       context: .
       dockerfile: Dockerfile
       args:
-        MODULE: service_pongB
-    container_name: pingpong-service-pongb
+        MODULE: service_bang
+    image: pingpong/service-bang:local
+    container_name: pingpong-service-bang
     ports:
       - "8082:8082"
     environment:

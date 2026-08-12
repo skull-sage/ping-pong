@@ -1,9 +1,6 @@
-import org.springframework.boot.gradle.plugin.SpringBootPlugin
-
 plugins {
     id 'java'
     id 'org.springframework.boot' version '4.0.7' apply false
-    id 'io.spring.dependency-management' version '1.1.7'
 }
 
 allprojects {
@@ -17,21 +14,19 @@ allprojects {
 
 subprojects {
     apply plugin: 'java'
-    apply plugin: 'io.spring.dependency-management'
 
     java {
+        // Uses the locally installed JDK 25 (Gradle 9.1+ supports running/toolchain on Java 25).
         toolchain {
-            languageVersion = JavaLanguageVersion.of(21)
-        }
-    }
-
-    dependencyManagement {
-        imports {
-            mavenBom SpringBootPlugin.BOM_COORDINATES
+            languageVersion = JavaLanguageVersion.of(25)
         }
     }
 
     dependencies {
+        // Spring Boot BOM imported the Gradle-native way (platform), so no version numbers are
+        // needed anywhere and we avoid the io.spring.dependency-management plugin (Gradle-9 safe).
+        implementation platform('org.springframework.boot:spring-boot-dependencies:4.0.7')
+        testImplementation platform('org.springframework.boot:spring-boot-dependencies:4.0.7')
         testImplementation 'org.springframework.boot:spring-boot-starter-test'
     }
 

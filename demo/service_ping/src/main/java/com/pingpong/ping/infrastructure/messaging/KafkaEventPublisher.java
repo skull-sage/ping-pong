@@ -3,7 +3,6 @@ package com.pingpong.ping.infrastructure.messaging;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.pingpong.common.EventEnvelope;
 import com.pingpong.common.TracingAttributes;
-import com.pingpong.ping.application.port.out.EventPublisher;
 import com.pingpong.ping.domain.Ping;
 import io.opentelemetry.api.OpenTelemetry;
 import io.opentelemetry.api.trace.Span;
@@ -21,15 +20,22 @@ import org.springframework.stereotype.Component;
  * (§7.5, §16), injects the W3C context into the record headers, and sends. The span is a child of
  * whatever context is current (the inbound SERVER span), so it stays in the same trace (CR-1).
  */
+/**
+ * Outbound event-publishing adapter (infrastructure layer). Builds the PRODUCER span, stamps the
+ * semantic-convention attributes, injects W3C trace context into the Kafka headers, and sends.
+ */
 @Component
-public class KafkaEventPublisher implements EventPublisher {
+@SuppressWarnings({"rawtypes", "unchecked"})
+public class KafkaEventPublisher {
 
-    private final KafkaTemplate<String, String> kafka;
+    // Raw type on purpose: Spring Boot auto-configures a KafkaTemplate<?, ?> bean, which a
+    // KafkaTemplate<String, String> injection point will not match. Raw matches it.
+    private final KafkaTemplate kafka;
     private final ObjectMapper mapper;
     private final Tracer tracer;
     private final OpenTelemetry openTelemetry;
 
-    public KafkaEventPublisher(KafkaTemplate<String, String> kafka,
+    public KafkaEventPublisher(KafkaTemplate kafka,
                                ObjectMapper mapper,
                                OpenTelemetry openTelemetry) {
         this.kafka = kafka;
@@ -38,7 +44,6 @@ public class KafkaEventPublisher implements EventPublisher {
         this.tracer = openTelemetry.getTracer("service-ping");
     }
 
-    @Override
     public void publish(String topic, String partitionKey, EventEnvelope envelope) {
         Span span = tracer.spanBuilder("publish " + topic)
                 .setSpanKind(SpanKind.PRODUCER)
