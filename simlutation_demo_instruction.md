@@ -21,7 +21,7 @@ For simulation and end-to-end visualtization:
 
 ### Phase 1 
 
-Refactor the codebase service_ping, service_pongA, service_pongB according to CQRS pattern and following guideline:
+Refactor the codebase service_ping, service_pong, service_bang according to CQRS pattern and following guideline:
 - RestController belongs to Presentation layer
 - you will remove port type structure rather Application Layer will have Command handler, commands that are emitted from presentation layer on REST request
   
