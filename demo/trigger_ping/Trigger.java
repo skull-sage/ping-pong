@@ -26,11 +26,17 @@ import java.util.concurrent.atomic.AtomicLong;
  *   <li><b>Bounded:</b> pass {@code --requests N} to fire exactly N requests and exit.</li>
  * </ul>
  *
+ * <p>Traffic is split across two REST endpoints so both pipelines are exercised concurrently:
+ * the happy path {@code POST /api/ping} and the CR-2 failure path {@code POST /api/ping/fail}.
+ * The mix defaults to <b>4:1 (ping:fail)</b> — 4 pings for every fault request — and is adjustable
+ * with {@code --ping-per-fail N}.
+ *
  * <pre>
- *   java Trigger.java                                    # continuous, 10 users, ~250ms think time
+ *   java Trigger.java                                    # continuous, 10 users, ~250ms think time, 4:1 mix
  *   java Trigger.java --concurrency 25 --think-ms 100    # heavier continuous load
  *   java Trigger.java --duration-sec 60                  # continuous, auto-stop after 60s
  *   java Trigger.java --requests 200 --concurrency 20    # bounded: 200 requests then exit
+ *   java Trigger.java --ping-per-fail 9                  # 9:1 mix (fewer faults)
  * </pre>
  */
 public class Trigger {
@@ -45,6 +51,13 @@ public class Trigger {
     private static final AtomicLong total_latency_ms = new AtomicLong();
     private static final AtomicInteger seq = new AtomicInteger();
 
+    // Per-endpoint tallies so the ping:fail mix is visible in the output.
+    private static final AtomicInteger ping_sent = new AtomicInteger();
+    private static final AtomicInteger fault_sent = new AtomicInteger();
+
+    // Endpoint mix: this many happy-path pings for each fault-injection request (default 4:1).
+    private static volatile int ping_per_fail = 4;
+
     public static void main(String[] args) throws Exception {
         Map<String, String> opts = parse_args(args);
         String url = opts.getOrDefault("url", "http://localhost:8080/api/ping");
@@ -53,6 +66,7 @@ public class Trigger {
         int think_ms = Integer.parseInt(opts.getOrDefault("think-ms", "250"));
         int report_sec = Integer.parseInt(opts.getOrDefault("report-sec", "5"));
         int duration_sec = Integer.parseInt(opts.getOrDefault("duration-sec", "0")); // 0 => until Ctrl+C
+        ping_per_fail = Math.max(1, Integer.parseInt(opts.getOrDefault("ping-per-fail", "4"))); // 4:1 mix
 
         if (requests > 0) {
             run_bounded(url, requests, concurrency);
@@ -64,8 +78,8 @@ public class Trigger {
     // ---- Continuous mode: mimic real-time user traffic until Ctrl+C (or --duration-sec) ----
     private static void run_continuous(String url, int concurrency, int think_ms,
                                        int report_sec, int duration_sec) throws Exception {
-        System.out.printf("Continuous load -> %s | users=%d, think=%dms, report every %ds%s%n",
-                url, concurrency, think_ms, report_sec,
+        System.out.printf("Continuous load -> %s | users=%d, think=%dms, mix %d:1 (ping:fail), report every %ds%s%n",
+                url, concurrency, think_ms, ping_per_fail, report_sec,
                 duration_sec > 0 ? (", auto-stop after " + duration_sec + "s") : " (Ctrl+C to stop)");
         System.out.println("------------------------------------------------------------");
 
@@ -99,6 +113,8 @@ public class Trigger {
                 System.out.println("\n------------------------------------------------------------");
                 System.out.printf("STOPPED. Total: %d ok, %d failed in %.1fs%n",
                         ok.get(), failed.get(), elapsed_ms / 1000.0);
+                System.out.printf("Sent: %d ping, %d fault (mix %d:1)%n",
+                        ping_sent.get(), fault_sent.get(), ping_per_fail);
                 if (done > 0) {
                     System.out.printf("Overall: %.1f req/s | avg latency %d ms%n",
                             done * 1000.0 / Math.max(elapsed_ms, 1), total_latency_ms.get() / done);
@@ -131,7 +147,8 @@ public class Trigger {
 
     // ---- Bounded mode: fire exactly N requests then exit ----
     private static void run_bounded(String url, int requests, int concurrency) throws Exception {
-        System.out.printf("Firing %d requests to %s with concurrency %d%n", requests, url, concurrency);
+        System.out.printf("Firing %d requests to %s with concurrency %d | mix %d:1 (ping:fail)%n",
+                requests, url, concurrency, ping_per_fail);
         ExecutorService pool = Executors.newFixedThreadPool(concurrency);
         long started = System.nanoTime();
 
@@ -157,14 +174,26 @@ public class Trigger {
         int done = ok.get() + failed.get();
         System.out.println("------------------------------------------------------------");
         System.out.printf("Done: %d ok, %d failed in %d ms%n", ok.get(), failed.get(), elapsed_ms);
+        System.out.printf("Sent: %d ping, %d fault (mix %d:1)%n",
+                ping_sent.get(), fault_sent.get(), ping_per_fail);
         if (done > 0) {
             System.out.printf("Avg request latency: %d ms | throughput: %.1f req/s%n",
                     total_latency_ms.get() / done, done * 1000.0 / Math.max(elapsed_ms, 1));
         }
     }
 
-    private static void fire_one(String url, int id) {
-        String body = "{\"note\":\"ping-" + id + "\"}";
+    private static void fire_one(String base_url, int id) {
+        // Route by sequence id so the ping:fail mix is exact: N pings then 1 fault, repeating.
+        boolean is_fault = (id % (ping_per_fail + 1)) == ping_per_fail;
+        String url = is_fault ? base_url + "/fail" : base_url;
+        String body = is_fault
+                ? "{\"reason\":\"demo-error-" + id + "\"}"
+                : "{\"note\":\"ping-" + id + "\"}";
+        if (is_fault) {
+            fault_sent.incrementAndGet();
+        } else {
+            ping_sent.incrementAndGet();
+        }
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(url))
                 .timeout(Duration.ofSeconds(10))

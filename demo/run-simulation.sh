@@ -8,10 +8,14 @@
 #   3. Waits until everything is healthy and opens the Grafana dashboard in your browser.
 #   4. Runs trigger_ping in CONTINUOUS mode to mimic real-time traffic (Ctrl+C to stop).
 #
+# The trigger drives BOTH endpoints concurrently: /api/ping and /api/ping/fail at a 4:1 mix
+# (adjust with --ping-per-fail).
+#
 # Usage:
 #   ./run-simulation.sh
 #   ./run-simulation.sh --concurrency 25 --think-ms 100
 #   ./run-simulation.sh --duration-sec 120
+#   ./run-simulation.sh --ping-per-fail 9        # fewer faults (9:1)
 #
 set -euo pipefail
 
@@ -20,13 +24,15 @@ CONCURRENCY=12
 THINK_MS=200
 REPORT_SEC=5
 DURATION_SEC=0
+PING_PER_FAIL=4          # 4:1 ping:fail endpoint mix
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    --concurrency)  CONCURRENCY="$2"; shift 2 ;;
-    --think-ms)     THINK_MS="$2";    shift 2 ;;
-    --report-sec)   REPORT_SEC="$2";  shift 2 ;;
-    --duration-sec) DURATION_SEC="$2"; shift 2 ;;
+    --concurrency)   CONCURRENCY="$2"; shift 2 ;;
+    --think-ms)      THINK_MS="$2";    shift 2 ;;
+    --report-sec)    REPORT_SEC="$2";  shift 2 ;;
+    --duration-sec)  DURATION_SEC="$2"; shift 2 ;;
+    --ping-per-fail) PING_PER_FAIL="$2"; shift 2 ;;
     *) echo "unknown option: $1"; exit 1 ;;
   esac
 done
@@ -95,10 +101,15 @@ done
 
 echo "== 4/4  Opening Grafana + starting CONTINUOUS trigger (Ctrl+C to stop) =="
 echo "   Grafana: http://localhost:3000  (Explore -> Tempo / Loki / Prometheus)"
+echo "   Happy path: POST /api/ping   (Ping -> Pong -> Bang)"
+echo "   Failure path (CR-2): the trigger also hits POST /api/ping/fail at a ${PING_PER_FAIL}:1 mix,"
+echo "   so ERROR logs appear continuously. Follow trace_guide.md §4 to find one in Loki and"
+echo "   back-trace it in Tempo. Fire one manually with:"
+echo "     curl -X POST http://localhost:8080/api/ping/fail -H 'Content-Type: application/json' -d '{\"reason\":\"demo-error\"}'"
 open_browser "http://localhost:3000"
 echo ""
 
-TRIGGER_ARGS=(Trigger.java --concurrency "$CONCURRENCY" --think-ms "$THINK_MS" --report-sec "$REPORT_SEC")
+TRIGGER_ARGS=(Trigger.java --concurrency "$CONCURRENCY" --think-ms "$THINK_MS" --report-sec "$REPORT_SEC" --ping-per-fail "$PING_PER_FAIL")
 if [ "$DURATION_SEC" -gt 0 ]; then TRIGGER_ARGS+=(--duration-sec "$DURATION_SEC"); fi
 
 trap 'echo; echo "Trigger stopped. Services + containers are still running. Run ./stop-simulation.sh to shut down."' INT

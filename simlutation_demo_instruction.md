@@ -17,31 +17,35 @@ For simulation and end-to-end visualtization:
 - you will setup the simulation and run  kafka and grafana LGTM stacks locally with container such as docker compose
 - you will give simple steps with clarity to load grafana visualization to test the simulation 
 
-## Change Request - 08.12
+## Change Request - 1.0
 
 ### Phase 1 
 
-Refactor the codebase service_ping, service_pong, service_bang according to CQRS pattern and following guideline:
+Refactor the codebase service_ping, service_pong, service_bang according to CQRS pattern to achieve following:
+
 - RestController belongs to Presentation layer
 - you will remove port type structure rather Application Layer will have Command handler, commands that are emitted from presentation layer on REST request
   
 - you will implement a minimalistic aggregate root with two sample actions that raise event on mutation
 - you will implement a dummy infrastructure service & a repository to simulate performance tracing with local span annotation @WithSpan, use Thread.sleep to mimick a performance hazard. 
 
--  You will place Event Listener code base in Presentation Layer and Event Publishing codebase in Infrastructure layer
+- You will place Event Listener code base in Presentation Layer and Event Publishing codebase in Infrastructure layer
 
-- you will implement a command handler that is just dummy a regular command handler with success response,
-
-- you will implement a command handler that will allow tracing the Span functionality in action  
+- you will implement command handler to each service to establish pipeline: Ping -> Pong -> Bang
 
 NOTE: you will make the implementation compact and not too abstract, rather core functionality in priortiy.  
 
-
-## Phase 2 
+### Phase 2
 
 In each service, you will generate a trace_guide doc describing a compact summary report to what metrics, logs and trace to look for in grafana and where to filter them along with required TraceQL.
 
-Then, in tabular format:  @WithSpan annotated function,  OTEL specifics used for tracing, and how to find/filter on grafana in dashboard. 
+Then, in tabular format:  @WithSpan annotated function,  OTEL specifics used for tracing, and how to find/filter on grafana in dashboard.
 
-List any more instruction you feel needed for clarity so that anyone can understand how each service metrics are collected along with service_name without looking into another code or docs. 
- 
+List any more instruction you feel needed for clarity so that anyone can understand how each service metrics are collected along with service_name without looking into another code or docs.
+
+## Change Request 2
+
+- current all services has trace guide. you will merge them into one, one section per service.
+- you will implement another pipeline for simlutation failure/exception/error case to observe on log & back tracing: A new rest endpoint to service ping that should publish an event for service pong to listen and raise an exception to be logged.
+- update trace guide with instruction: how to find such log along with back tracing.
+- you will check run-simulation.sh to spin up all the stacks for direct visualizations.

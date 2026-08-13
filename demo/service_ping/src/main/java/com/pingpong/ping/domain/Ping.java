@@ -50,6 +50,16 @@ public final class Ping {
         this.pending_events.add(new PongAcknowledged(id, responder, Instant.now()));
     }
 
+    /**
+     * Action #3 (mutation, CR-2 failure pipeline): flag this ping for fault injection and raise
+     * {@link FaultRequested}. The application layer publishes it to {@code ping.faults}, where
+     * service_pong deliberately fails so the error can be logged and back-traced.
+     */
+    public void request_fault(String reason) {
+        this.status = "FAULT_REQUESTED";
+        this.pending_events.add(new FaultRequested(id, reason, Instant.now()));
+    }
+
     /** Drains the buffered domain events (the application layer publishes/handles them). */
     public List<Object> pull_events() {
         List<Object> drained = List.copyOf(pending_events);

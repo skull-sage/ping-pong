@@ -1,7 +1,9 @@
 package com.pingpong.ping.presentation.web;
 
 import com.pingpong.ping.application.SendPingCommandHandler;
+import com.pingpong.ping.application.TriggerFaultCommandHandler;
 import com.pingpong.ping.application.command.SendPingCommand;
+import com.pingpong.ping.application.command.TriggerFaultCommand;
 import java.util.Map;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -20,9 +22,12 @@ import org.springframework.web.bind.annotation.RestController;
 public class PingController {
 
     private final SendPingCommandHandler sendPingHandler;
+    private final TriggerFaultCommandHandler triggerFaultHandler;
 
-    public PingController(SendPingCommandHandler sendPingHandler) {
+    public PingController(SendPingCommandHandler sendPingHandler,
+                          TriggerFaultCommandHandler triggerFaultHandler) {
         this.sendPingHandler = sendPingHandler;
+        this.triggerFaultHandler = triggerFaultHandler;
     }
 
     @PostMapping("/ping")
@@ -33,7 +38,25 @@ public class PingController {
                 .body(Map.of("status", "accepted", "correlationId", correlationId));
     }
 
+    /**
+     * CR-2 failure pipeline. Emits a {@link TriggerFaultCommand} that publishes a fault-request
+     * event to {@code ping.faults}; service_pong consumes it and deliberately raises a logged
+     * exception. The returned {@code correlationId} lets you back-trace that error in Loki/Tempo.
+     */
+    @PostMapping("/ping/fail")
+    public ResponseEntity<Map<String, String>> fail(@RequestBody(required = false) FaultRequest request) {
+        String reason = (request == null || request.reason() == null)
+                ? "simulated-downstream-failure" : request.reason();
+        String correlationId = triggerFaultHandler.handle(new TriggerFaultCommand(reason));
+        return ResponseEntity.status(HttpStatus.ACCEPTED)
+                .body(Map.of("status", "fault-dispatched", "correlationId", correlationId));
+    }
+
     /** Optional JSON body: {"note": "..."}. */
     public record PingRequest(String note) {
+    }
+
+    /** Optional JSON body: {"reason": "..."}. */
+    public record FaultRequest(String reason) {
     }
 }

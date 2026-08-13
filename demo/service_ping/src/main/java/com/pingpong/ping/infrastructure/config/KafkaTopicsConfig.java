@@ -19,4 +19,9 @@ public class KafkaTopicsConfig {
     NewTopic pong_events_topic() {
         return TopicBuilder.name(Topics.PONG_EVENTS).partitions(3).replicas(1).build();
     }
+
+    @Bean
+    NewTopic ping_faults_topic() {
+        return TopicBuilder.name(Topics.PING_FAULTS).partitions(3).replicas(1).build();
+    }
 }
