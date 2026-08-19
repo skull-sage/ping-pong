@@ -1,0 +1,59 @@
+spring:
+  application:
+    name: service-ping            # bound as service.name on every span/metric/log
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP:localhost:9092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: all                   # durability: surface unconfirmed publishes (§8.1)
+    consumer:
+      group-id: service-ping
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+
+server:
+  port: 8080
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  tracing:
+    sampling:
+      probability: 1.0            # 100% in the demo; use tail sampling at the collector in prod (OQ-1)
+    baggage:
+      # Business saga id carried as Baggage (NOT the correlator — trace_id is). remote-fields makes
+      # it propagate over the wire (incl. Kafka headers); correlation.fields mirrors it into MDC as
+      # "correlationId", so every log line shows it without any manual MDC.put.
+      remote-fields:
+        - correlationId
+      correlation:
+        fields:
+          - correlationId
+  otlp:
+    metrics:
+      export:
+        url: ${OTLP_ENDPOINT:http://localhost:4318}/v1/metrics
+        step: 5s
+  opentelemetry:
+    resource-attributes:
+      service.namespace: pingpong
+    tracing:
+      export:
+        otlp:
+          endpoint: ${OTLP_ENDPOINT:http://localhost:4318}/v1/traces
+    logging:
+      export:
+        otlp:
+          endpoint: ${OTLP_ENDPOINT:http://localhost:4318}/v1/logs
+
+logging:
+  pattern:
+    # Three-pillar correlation: every line carries service name + the single trace_id/span_id
+    # (Micrometer Tracing populates traceId/spanId into MDC automatically whenever a span is in
+    # scope) + the business ids. This is what makes an ERROR log self-sufficient for back-tracing:
+    # service tells you WHERE, traceId lets you open the WHOLE end-to-end trace in Tempo.
+    level: "%5p [${spring.application.name:-}] [traceId=%X{traceId:-}, spanId=%X{spanId:-}] [corr=%X{correlationId:-}, cause=%X{causationId:-}]"

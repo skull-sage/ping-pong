@@ -1,0 +1,18 @@
+pluginManagement {
+    repositories {
+        gradlePluginPortal()
+        mavenCentral()
+    }
+}
+
+plugins {
+    // Lets Gradle auto-provision the Java 21 toolchain if it is missing locally.
+    id 'org.gradle.toolchains.foojay-resolver-convention' version '0.8.0'
+}
+
+rootProject.name = 'ping-pong-tracing-demo'
+
+include 'common'
+include 'service_ping'
+include 'service_pong'
+include 'service_bang'

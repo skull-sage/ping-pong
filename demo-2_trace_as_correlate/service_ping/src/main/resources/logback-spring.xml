@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <!-- Keep Spring Boot's console appender (with the MDC correlation pattern) ... -->
+    <include resource="org/springframework/boot/logging/logback/base.xml"/>
+
+    <!-- ... and also ship every log record to the OTel collector (-> Loki) with trace context. -->
+    <appender name="OTEL"
+              class="io.opentelemetry.instrumentation.logback.appender.v1_0.OpenTelemetryAppender">
+        <captureExperimentalAttributes>true</captureExperimentalAttributes>
+        <captureMdcAttributes>*</captureMdcAttributes>
+    </appender>
+
+    <root level="INFO">
+        <appender-ref ref="OTEL"/>
+    </root>
+</configuration>

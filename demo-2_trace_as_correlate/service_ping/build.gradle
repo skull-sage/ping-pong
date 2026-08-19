@@ -1,0 +1,28 @@
+plugins {
+    id 'org.springframework.boot'
+}
+
+dependencies {
+    implementation project(':common')
+
+    // Web entry point. Spring/Micrometer auto-instruments every inbound request as the SERVER span
+    // that OPENS the trace — this is where the single trace_id for the whole lifecycle is born.
+    implementation 'org.springframework.boot:spring-boot-starter-web'
+    implementation 'org.springframework.boot:spring-boot-starter-actuator'
+
+    // Messaging
+    implementation 'org.springframework.boot:spring-boot-starter-kafka'
+
+    // Observability -> Grafana LGTM via OTLP. The official Spring Boot 4 starter provides the
+    // Micrometer Observation API, the micrometer-tracing-bridge-otel (so Micrometer spans become
+    // OTLP traces), the OTLP metrics registry, and the OpenTelemetry SDK bean. We instrument with
+    // Micrometer (Tracer/Propagator + @Observed), NOT the raw OpenTelemetry API.
+    implementation 'org.springframework.boot:spring-boot-starter-opentelemetry'
+    // Routes application logs (logback) to OTLP -> Loki, with the active trace context attached.
+    implementation 'io.opentelemetry.instrumentation:opentelemetry-logback-appender-1.0:2.21.0-alpha'
+    // AOP weaving for Micrometer's @Observed annotation (see ObservationConfig -> ObservedAspect).
+    implementation 'org.springframework.boot:spring-boot-starter-aspectj'
+
+    // JSON
+    implementation 'com.fasterxml.jackson.datatype:jackson-datatype-jsr310'
+}

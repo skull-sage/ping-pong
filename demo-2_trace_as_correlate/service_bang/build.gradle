@@ -1,0 +1,22 @@
+plugins {
+    id 'org.springframework.boot'
+}
+
+dependencies {
+    implementation project(':common')
+
+    implementation 'org.springframework.boot:spring-boot-starter-web'
+    implementation 'org.springframework.boot:spring-boot-starter-actuator'
+    implementation 'org.springframework.boot:spring-boot-starter-kafka'
+
+    // Observability -> Grafana LGTM via OTLP. The Spring Boot 4 starter brings the Micrometer
+    // Observation API + micrometer-tracing-bridge-otel + OTLP exporters + the OpenTelemetry SDK.
+    // We instrument with Micrometer (Tracer/Propagator + @Observed), NOT the raw OpenTelemetry API.
+    implementation 'org.springframework.boot:spring-boot-starter-opentelemetry'
+    // Routes application logs (logback) to OTLP -> Loki, with the active trace context attached.
+    implementation 'io.opentelemetry.instrumentation:opentelemetry-logback-appender-1.0:2.21.0-alpha'
+    // AOP weaving for Micrometer's @Observed annotation (see ObservationConfig -> ObservedAspect).
+    implementation 'org.springframework.boot:spring-boot-starter-aspectj'
+
+    implementation 'com.fasterxml.jackson.datatype:jackson-datatype-jsr310'
+}
